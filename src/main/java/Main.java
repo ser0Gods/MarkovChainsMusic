@@ -47,28 +47,29 @@ public class Main extends jm.audio.Instrument {
 
     private void processFromMidi() {
 //        this.copyMidi("OoC_SoS.mid","copy.mid");
-        this.readMidiToMatrix();
-        this.generateMusicForXStepsMidi(100);
+        int chainLength = 50;
+        this.readMidiToMatrix(chainLength);
+        this.generateMusicForXStepsMidi(400, chainLength);
     }
 
     private void copyMidi(String baseFile, String desinationFile) {
         Score score = new Score("base");
-        Read.midi(score,baseFile);
-        for (Note n :score.getPart(0).getPhrase(0).getNoteArray()) {
+        Read.midi(score, baseFile);
+        for (Note n : score.getPart(0).getPhrase(0).getNoteArray()) {
             System.out.println(n.getName());
             System.out.println(n);
         }
-        Write.midi(score,desinationFile);
+        Write.midi(score, desinationFile);
 
     }
 
-    private void generateMusicForXStepsMidi(int steps) {
+    private void generateMusicForXStepsMidi(int steps, int chainLength) {
         String[] keys = new String[this.matrix.size()];
         this.matrix.keySet().toArray(keys);
 
-        for (String s :keys) {
-            System.out.println(s);
-        }
+//        for (String s :keys) {
+//            System.out.println(s);
+//        }
         Random rng = new Random();
         Note current;
         do {
@@ -77,20 +78,19 @@ public class Main extends jm.audio.Instrument {
                 sum += rng.nextInt(keys.length);
             }
             sum = sum % keys.length;
-            System.out.println(keys[sum]);
+//            System.out.println(keys[sum]);
             current = new Note(keys[sum]);
-            current.setRhythmValue(0.25);
-            current.setDuration(0.225);
         } while (!this.matrix.containsKey(current.getName()));
-        System.out.println(current.getName());
-        System.out.println(current);
+//        System.out.println(current.getName());
+//        System.out.println(current);
 
         Score score = new Score("Score");
 //        score.setTempo(198d);
-        Read.midi(score,"OoC_SoS.mid");
-        for (Part part:score.getPartArray()) {
-            for (Phrase phrase :part.getPhraseArray()) {
-                for (Note note :phrase.getNoteArray()) {
+        Read.midi(score, "OoC_SoS.mid");
+//        Read.midi(score, "for_elise_by_beethoven.mid");
+        for (Part part : score.getPartArray()) {
+            for (Phrase phrase : part.getPhraseArray()) {
+                for (Note note : phrase.getNoteArray()) {
                     phrase.removeLastNote();
                 }
             }
@@ -98,19 +98,22 @@ public class Main extends jm.audio.Instrument {
 //        Part part = new Part("Part");
 //        Phrase phrase = new Phrase("Phrase");
         score.getPart(0).getPhrase(0).addNote(this.name2Note.get(current.getName()));
+        ArrayList<Note> song = new ArrayList<>();
+        song.add(current);
         for (int i = 0; i < steps; i++) {
-            Note next = this.generateNextNote(current);
-            next.setRhythmValue(0.25);
-            next.setDuration(0.225);
-            score.getPart(0).getPhrase(0).addNote(this.name2Note.get(next.getName()));
+            Note next = this.generateNextNote(current, song, chainLength);
+            song.add(next);
+            Note recall = this.name2Note.get(next.getName());
+            recall.setRhythmValue(EIGHTH_NOTE);
+            score.getPart(0).getPhrase(0).addNote(recall);
             current = next;
         }
 
-        Write.midi(score,"test.mid");
+        Write.midi(score, "test.mid");
     }
 
-    private Note generateNextNote(Note current) {
-        HashMap<String, Integer> transitions = this.matrix.get(current.getName());
+    private Note generateNextNote(Note current, ArrayList<Note> song, int chainLength) {
+        HashMap<String, Integer> transitions = this.getTransitionRow(song, chainLength);
         int records = 0;
         for (String key : transitions.keySet()) {
             records += transitions.get(key);
@@ -118,45 +121,90 @@ public class Main extends jm.audio.Instrument {
         Random rng = new Random();
         int sum = 0;
         for (int i = 0; i < 10; i++) {
-            sum+=rng.nextInt(records);
+            sum += rng.nextInt(records);
         }
         sum %= records;
         for (String key : transitions.keySet()) {
-            if (transitions.get(key)<sum){
-                sum-=transitions.get(key);
-            }else
-            {
+            if (transitions.get(key) < sum) {
+                sum -= transitions.get(key);
+            } else {
                 return new Note(key);
             }
         }
-        System.out.println("Keine Folgenote gefunden für "+current.getName());
+        System.out.println("Keine Folgenote gefunden für " + current.getName());
         return null;
     }
 
-    private void readMidiToMatrix() {
+    private HashMap<String, Integer> getTransitionRow(ArrayList<Note> song, int chainLength) {
+//        System.out.println("=======================================================================");
+//        System.out.println("size: " + song.size());
+        String key = "";
+        String confirmedKey = "";
+        int kettenlaenge = 0;
+        for (int i = 1; i <= chainLength && (song.size() - i) > 0; i++) {
+            if (key.length() == 0) {
+                key = song.get(song.size() - i).getName();
+            } else {
+                key = song.get(song.size() - i).getName() + "-" + key;
+            }
+//            System.out.println("tmpKey: " + key);
+            if (this.matrix.containsKey(key)) {
+                confirmedKey = key;
+                kettenlaenge = i;
+            }
+        }
+
+        System.out.println("Kettenlaenge: "+kettenlaenge);
+//        System.out.println("Searching key: " + confirmedKey);
+//        System.out.println("Key found: " + this.matrix.containsKey(confirmedKey));
+        return this.matrix.get(confirmedKey);
+    }
+
+    private void readMidiToMatrix(int chainLength) {
         Score original = new Score();
         Read.midi(original, "OoC_SoS.mid");
-        System.out.println("Parts: " + original.getPartArray().length);
+//        System.out.println("Parts: " + original.getPartArray().length);
         for (Part part : original.getPartArray()) {
-            System.out.println("Phrases: " + part.getPhraseArray().length);
+//            System.out.println("Phrases: " + part.getPhraseArray().length);
             for (Phrase phrase : part.getPhraseArray()) {
-                System.out.println("Notes: " + phrase.getNoteArray().length);
+//                System.out.println("Notes: " + phrase.getNoteArray().length);
+                //Jede Note durchgehen
                 for (int i = 0; i < phrase.getNoteArray().length - 1; i++) {
-                    Note current = phrase.getNoteArray()[i];
-                    Note next = phrase.getNoteArray()[i + 1];
-//                    System.out.println(current.getName()+" => "+next.getName());
-                    if (this.matrix.containsKey(current.getName())) {
-                        if (this.matrix.get(current.getName()).containsKey(next.getName())) {
-                            this.matrix.get(current.getName()).put(next.getName(), this.matrix.get(current.getName()).get(next.getName()) + 1);
-                        } else {
-                            this.matrix.get(current.getName()).put(next.getName(), 1);
+                    System.out.println(phrase.getNoteArray()[i]);
+                    //entsprechend der chainLength Noten-Ketten bilden
+                    String key = "";
+                    for (int j = 0; j < chainLength; j++) {
+                        //Kette mit der länge j+1 , also 1 bis 5
+                        //Notenkette nur nutzen wenn es genügend vorherige noten gibt
+//                        System.out.println("j: " + j);
+                        int k = i - j;
+                        if ((k > 0) && (k <= i)) {
+                            Note current = phrase.getNoteArray()[k];
+                            if (k < i) {
+                                key = current.getName() + "-" + key;
+                            } else {
+                                key = current.getName();
+                            }
+//                            System.out.println("current: " + current.getName());
+//                            System.out.println(key + " (" + i + " / " + k + ")");
                         }
-                    } else {
-                        HashMap<String, Integer> intern = new HashMap<>();
-                        intern.put(next.getName(), 1);
-                        this.matrix.put(current.getName(), intern);
+//                        System.out.println("key: " + key);
 
-                        this.name2Note.put(current.getName(),current);
+                        Note next = phrase.getNoteArray()[i + 1];
+//                    System.out.println(current.getName()+" => "+next.getName());
+                        if (this.matrix.containsKey(key)) {
+                            if (this.matrix.get(key).containsKey(next)) {
+                                this.matrix.get(key).put(next.toString(), this.matrix.get(key).get(next) + 1);
+                            } else {
+                                this.matrix.get(key).put(next.getName(), 1);
+                            }
+                        } else {
+                            HashMap<String, Integer> intern = new HashMap<>();
+                            intern.put(next.getName(), 1);
+                            this.matrix.put(key, intern);
+
+                            this.name2Note.put(key, next);
+                        }
                     }
                 }
             }
@@ -245,7 +293,7 @@ public class Main extends jm.audio.Instrument {
             tune = (int) ((rng * 1379.0f) % this.max);
 //            System.out.println(tune);
         } while (!(tune > 0) || !(this.followers[tune] > 0) || !(this.tunes.contains(tune)));
-        System.out.println("Start tune: " + this.tunes2notes.get(tune) + "/" + tune);
+//        System.out.println("Start tune: " + this.tunes2notes.get(tune) + "/" + tune);
         song.add(tune);
 
         int next = -1;
