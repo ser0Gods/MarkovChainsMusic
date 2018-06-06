@@ -23,10 +23,7 @@ import javax.xml.transform.stream.StreamResult;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Random;
+import java.util.*;
 
 
 public class Main extends jm.audio.Instrument {
@@ -40,9 +37,133 @@ public class Main extends jm.audio.Instrument {
     private int[][] transitionMatrix;
     private ArrayList<Integer> tunes;
     private int[] followers;
+    private HashMap<String, Note> name2Note = new HashMap<>();
 
     public static void main(String[] args) {
         Main a = new Main();
+//        a.processFromWav(a);
+        a.processFromMidi();
+    }
+
+    private void processFromMidi() {
+//        this.copyMidi("OoC_SoS.mid","copy.mid");
+        this.readMidiToMatrix();
+        this.generateMusicForXStepsMidi(100);
+    }
+
+    private void copyMidi(String baseFile, String desinationFile) {
+        Score score = new Score("base");
+        Read.midi(score,baseFile);
+        for (Note n :score.getPart(0).getPhrase(0).getNoteArray()) {
+            System.out.println(n.getName());
+            System.out.println(n);
+        }
+        Write.midi(score,desinationFile);
+
+    }
+
+    private void generateMusicForXStepsMidi(int steps) {
+        String[] keys = new String[this.matrix.size()];
+        this.matrix.keySet().toArray(keys);
+
+        for (String s :keys) {
+            System.out.println(s);
+        }
+        Random rng = new Random();
+        Note current;
+        do {
+            int sum = 0;
+            for (int i = 0; i < 10; i++) {
+                sum += rng.nextInt(keys.length);
+            }
+            sum = sum % keys.length;
+            System.out.println(keys[sum]);
+            current = new Note(keys[sum]);
+            current.setRhythmValue(0.25);
+            current.setDuration(0.225);
+        } while (!this.matrix.containsKey(current.getName()));
+        System.out.println(current.getName());
+        System.out.println(current);
+
+        Score score = new Score("Score");
+//        score.setTempo(198d);
+        Read.midi(score,"OoC_SoS.mid");
+        for (Part part:score.getPartArray()) {
+            for (Phrase phrase :part.getPhraseArray()) {
+                for (Note note :phrase.getNoteArray()) {
+                    phrase.removeLastNote();
+                }
+            }
+        }
+//        Part part = new Part("Part");
+//        Phrase phrase = new Phrase("Phrase");
+        score.getPart(0).getPhrase(0).addNote(this.name2Note.get(current.getName()));
+        for (int i = 0; i < steps; i++) {
+            Note next = this.generateNextNote(current);
+            next.setRhythmValue(0.25);
+            next.setDuration(0.225);
+            score.getPart(0).getPhrase(0).addNote(this.name2Note.get(next.getName()));
+            current = next;
+        }
+
+        Write.midi(score,"test.mid");
+    }
+
+    private Note generateNextNote(Note current) {
+        HashMap<String, Integer> transitions = this.matrix.get(current.getName());
+        int records = 0;
+        for (String key : transitions.keySet()) {
+            records += transitions.get(key);
+        }
+        Random rng = new Random();
+        int sum = 0;
+        for (int i = 0; i < 10; i++) {
+            sum+=rng.nextInt(records);
+        }
+        sum %= records;
+        for (String key : transitions.keySet()) {
+            if (transitions.get(key)<sum){
+                sum-=transitions.get(key);
+            }else
+            {
+                return new Note(key);
+            }
+        }
+        System.out.println("Keine Folgenote gefunden für "+current.getName());
+        return null;
+    }
+
+    private void readMidiToMatrix() {
+        Score original = new Score();
+        Read.midi(original, "OoC_SoS.mid");
+        System.out.println("Parts: " + original.getPartArray().length);
+        for (Part part : original.getPartArray()) {
+            System.out.println("Phrases: " + part.getPhraseArray().length);
+            for (Phrase phrase : part.getPhraseArray()) {
+                System.out.println("Notes: " + phrase.getNoteArray().length);
+                for (int i = 0; i < phrase.getNoteArray().length - 1; i++) {
+                    Note current = phrase.getNoteArray()[i];
+                    Note next = phrase.getNoteArray()[i + 1];
+//                    System.out.println(current.getName()+" => "+next.getName());
+                    if (this.matrix.containsKey(current.getName())) {
+                        if (this.matrix.get(current.getName()).containsKey(next.getName())) {
+                            this.matrix.get(current.getName()).put(next.getName(), this.matrix.get(current.getName()).get(next.getName()) + 1);
+                        } else {
+                            this.matrix.get(current.getName()).put(next.getName(), 1);
+                        }
+                    } else {
+                        HashMap<String, Integer> intern = new HashMap<>();
+                        intern.put(next.getName(), 1);
+                        this.matrix.put(current.getName(), intern);
+
+                        this.name2Note.put(current.getName(),current);
+                    }
+                }
+            }
+        }
+    }
+
+    private void processFromWav(Main a) {
         float[] data = a.readAndDisplay("Storms.wav");
         int startIndex = a.getStartIndex(data);
         int endIndex = a.getEndIndex(data);
@@ -57,7 +178,7 @@ public class Main extends jm.audio.Instrument {
         a.buildMatrix(a.noteNames);
         a.writeMatrixToFile(a.transitionMatrix);
 
-        a.generateMusicForXSteps(dataTrimed.length/4, "generated.wav");
+        a.generateMusicForXSteps(dataTrimed.length / 4, "generated.wav");
     }
 
     private void writeMatrixToFile(int[][] transitionMatrix) {
@@ -141,7 +262,7 @@ public class Main extends jm.audio.Instrument {
         float[] songFrequencies = this.convertTunesToFrequences(song);
         Write.audio(songFrequencies, "songFrequences.wav");
 
-        this.convertToRemix(song,100);
+        this.convertToRemix(song, 100);
     }
 
     private void convertToRemix(ArrayList<Integer> song, int length) {
@@ -150,12 +271,12 @@ public class Main extends jm.audio.Instrument {
         Phrase phrase = new Phrase("Phrase");
 
         for (int i = 0; i < length; i++) {
-            phrase.addNote(new Note(song.get(i),SIXTEENTH_NOTE));
+            phrase.addNote(new Note(song.get(i), SIXTEENTH_NOTE));
         }
 
         part.add(phrase);
         score.add(part);
-        Write.au(score,"remix.wav",this);
+        Write.au(score, "remix.wav", this);
     }
 
     private void calculateNumberOfFollowingTunes() {
@@ -185,7 +306,7 @@ public class Main extends jm.audio.Instrument {
     private int getNextTune(int tune) {
         int[] transitionFromTune = this.transitionMatrix[tune];
 
-        if (!(this.followers[tune]>0)) {
+        if (!(this.followers[tune] > 0)) {
             return 0;
         }
         int total = 0;
@@ -354,18 +475,18 @@ public class Main extends jm.audio.Instrument {
     }
 
     @Override
-    public void createChain(){
+    public void createChain() {
         Oscillator wt = new Oscillator(this, Oscillator.SINE_WAVE,
                 44100, 1);
 
-        Envelope env = new Envelope(wt, new EnvPoint[] {
-                new EnvPoint((float)0.0, (float)0.0),
-                new EnvPoint((float)0.02, (float)1.0),
-                new EnvPoint((float)0.15, (float)0.6),
-                new EnvPoint((float)0.9, (float)0.4),
-                new EnvPoint((float)1.0, (float)0.0)
+        Envelope env = new Envelope(wt, new EnvPoint[]{
+                new EnvPoint((float) 0.0, (float) 0.0),
+                new EnvPoint((float) 0.02, (float) 1.0),
+                new EnvPoint((float) 0.15, (float) 0.6),
+                new EnvPoint((float) 0.9, (float) 0.4),
+                new EnvPoint((float) 1.0, (float) 0.0)
 
         });
-        SampleOut sout = new SampleOut( env, "jmusic.tmp");
+        SampleOut sout = new SampleOut(env, "jmusic.tmp");
     }
 }
